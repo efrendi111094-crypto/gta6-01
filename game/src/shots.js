@@ -1,79 +1,101 @@
-// The screenshot scenes behind ?shot=start|play|end. Each one plays the real rules forward from a
-// fresh world for a fixed number of steps, steered by a simple autopilot (look ahead each way the
-// paddle could move, keep clear of blocks, chase the lowest coin when that is safe), so the frame
-// is what a short game really looks like and the same seed always gives the same frame.
-import { FIELD, PLAYER, STEP } from './config.js';
-import { EVENT_OVER, KIND_BLOCK } from './world.js';
-import { SCREEN_OVER, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
+// shots.js: staged scenes for the screenshots (?shot=chase|foot|combat|menu).
+// Each one sets up the real game — the real rules, the real city — then lets
+// it play itself for a couple of seconds under a small autopilot, so the frame
+// is what a short game really looks like.
 
-const START_SECONDS = 5;
-const PLAY_SECONDS = 26;
-const END_LIMIT_SECONDS = 600;
-/**
- * How far ahead, in seconds, the autopilot checks each way it could move: the play scene's pilot
- * looks well ahead and keeps all its lives; the end scene's looks only a moment ahead, so it is
- * caught out once the blocks speed up, as a hurried player is.
- */
-const HORIZON_PLAY = 0.7;
-const HORIZON_END = 0.25;
-const SAMPLE = 1 / 30;
-const DIRECTIONS = [0, -1, 1];
-/** Extra room, each side, it keeps between the paddle and a block. */
-const MARGIN = 10;
+import { roadCenter, landmarkCenter } from './city.js';
+import { MISSIONS, startMission } from './missions.js';
+import { spawnCar } from './vehicles.js';
+import { spawnEnemy } from './combat.js';
 
-/** Seconds until moving in `direction` (-1, 0, 1) runs the paddle into a block; Infinity when it never does. */
-function timeToHit(state, direction, horizon) {
-  const player = state.player;
-  for (let t = SAMPLE; t <= horizon; t += SAMPLE) {
-    const x = Math.min(FIELD.width - player.width, Math.max(0, player.x + direction * PLAYER.speed * t));
-    for (let index = 0; index < state.items.length; index += 1) {
-      const item = state.items[index];
-      if (!item.active || item.kind !== KIND_BLOCK) continue;
-      const y = item.y + item.speed * t;
-      if (y + item.height > player.y && y < player.y + player.height && item.x < x + player.width + MARGIN && item.x + item.width > x - MARGIN) return t;
+// Seconds of live play before the frame is taken.
+export const SHOT_DELAY = { chase: 1.7, foot: 1.6, combat: 2.2, menu: 0.6 };
+
+export function stageShot(name, state) {
+  const p = state.player;
+  if (name === 'chase') {
+    // Mid-chase: Kai in the Vela GT, 3 stars, SBPD on his tail, Mara's getaway job live.
+    const y = roadCenter(5);
+    const car = spawnCar(state, 'vela', roadCenter(4), y, 0, 'player');
+    car.color = '#c93a4a';
+    car.speed = 380;
+    p.inCar = car;
+    p.x = car.x; p.y = car.y; p.angle = 0;
+    p.money = 1450;
+    state.wanted = 3;
+    for (let i = 0; i < 3; i += 1) {
+      const cop = spawnCar(state, 'police', roadCenter(4) - 120 - i * 90, y + (i % 2 ? 26 : -26), 0, 'police');
+      cop.speed = 360;
     }
+    const m4 = MISSIONS.find((m) => m.id === 'm4');
+    startMission(state, m4);
+    state.mission.stepIndex = 1;
+    state.mission.maraInCar = true;
+    const home = landmarkCenter(state.city, 'safehouse');
+    state.objective = 'Lose the heat and reach the Safehouse';
+    state.objectiveTarget = { x: home.x, y: home.y, name: 'Safehouse' };
+    state.screen = 'play';
+    return;
   }
-  return Infinity;
+  if (name === 'combat') {
+    // Harbor shootout: Kai on foot, four dock rivals, the clear-out job live.
+    const harbor = landmarkCenter(state.city, 'harbor');
+    p.x = harbor.x - 160;
+    p.y = harbor.y + 180;
+    p.angle = 0;
+    p.aimAngle = 0;
+    p.money = 980;
+    p.armor = 50;
+    const m3 = MISSIONS.find((m) => m.id === 'm3');
+    startMission(state, m3);
+    state.mission.stepIndex = 1;
+    const spots = [[-70, -40], [60, -60], [-40, 70], [80, 50]];
+    for (const s of spots) spawnEnemy(state, harbor.x + s[0], harbor.y + 150 + s[1]);
+    state.objective = 'Clear out the dock crew (4)';
+    state.objectiveTarget = { x: harbor.x, y: harbor.y + 150, name: 'Harbor Warehouse' };
+    state.screen = 'play';
+    return;
+  }
+  if (name === 'foot') {
+    // On foot in Downtown: traffic, pedestrians, the first job live.
+    p.x = roadCenter(2) + 40;
+    p.y = roadCenter(2) + 60;
+    p.angle = Math.PI / 4;
+    p.aimAngle = Math.PI / 4;
+    p.money = 250;
+    const m1 = MISSIONS.find((m) => m.id === 'm1');
+    startMission(state, m1);
+    state.screen = 'play';
+    return;
+  }
+  // menu: the start screen as it opens.
+  state.screen = 'menu';
 }
 
-/** Of the safe ways to move, the one toward the lowest coin (or the centre); else the one that is hit last. */
-function autopilot(state, horizon) {
-  const player = state.player;
-  let coin = null;
-  for (let index = 0; index < state.items.length; index += 1) {
-    const item = state.items[index];
-    if (item.active && item.kind !== KIND_BLOCK && (coin === null || item.y > coin.y)) coin = item;
+// Scripted input while a shot plays itself. Returns {ax, ay, steer} overrides
+// or null when the shot drives nothing.
+export function shotDriver(name, state) {
+  const p = state.player;
+  if (name === 'chase' && p.inCar) {
+    const targetY = roadCenter(5);
+    const steer = Math.max(-1, Math.min(1, (targetY - p.inCar.y) * 0.02));
+    return { ax: steer, ay: -1, brake: false, mouseDown: false };
   }
-  const target = coin === null ? FIELD.width / 2 : coin.x + coin.width / 2;
-  const centre = player.x + player.width / 2;
-  const wanted = target > centre + 8 ? 1 : target < centre - 8 ? -1 : 0;
-  let best = wanted;
-  let bestTime = timeToHit(state, wanted, horizon);
-  for (let index = 0; index < DIRECTIONS.length && bestTime !== Infinity; index += 1) {
-    const time = timeToHit(state, DIRECTIONS[index], horizon);
-    if (time > bestTime) {
-      bestTime = time;
-      best = DIRECTIONS[index];
+  if (name === 'foot') {
+    return { ax: 0.4, ay: 0.2, brake: false, mouseDown: false };
+  }
+  if (name === 'combat') {
+    // Aim at the nearest rival and fire.
+    let best = null;
+    let bestD = Infinity;
+    for (const e of state.enemies) {
+      const d = Math.hypot(e.x - p.x, e.y - p.y);
+      if (d < bestD) { best = e; bestD = d; }
+    }
+    if (best) {
+      p.aimAngle = Math.atan2(best.y - p.y, best.x - p.x);
+      return { ax: 0, ay: 0, brake: false, mouseDown: true };
     }
   }
-  return best;
-}
-
-/**
- * Set `world` to the named scene (start, play or end; any other name is start) and return the
- * screen to draw over it and the best score to show.
- */
-export function stageShot(name, world) {
-  world.reset();
-  if (name !== 'play' && name !== 'end') {
-    for (let index = 0; index < START_SECONDS / STEP; index += 1) world.step(STEP, 0, true);
-    return { screen: SCREEN_TITLE, best: 0 };
-  }
-  const limit = name === 'end' ? END_LIMIT_SECONDS : PLAY_SECONDS;
-  const horizon = name === 'end' ? HORIZON_END : HORIZON_PLAY;
-  for (let index = 0; index < limit / STEP; index += 1) {
-    if (world.step(STEP, autopilot(world.state, horizon), false) & EVENT_OVER) break;
-  }
-  const over = world.state.lives === 0;
-  return { screen: over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score };
+  return null;
 }

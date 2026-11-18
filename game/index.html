@@ -3,17 +3,163 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Block Dodger</title>
+<title>Solmar Bay — Open-World Crime Game</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #11141b; }
-  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-  /* Read aloud, never shown: the status line screen readers announce. */
+  :root {
+    --gold: #ffd23a;
+    --ink: #14141c;
+    --panel: rgba(16, 16, 24, 0.82);
+    --line: rgba(255, 255, 255, 0.16);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #14141c;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #f2f0e8; }
+  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; }
   #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+  /* ---------- HUD ---------- */
+  #hud { display: none; position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+  #minimap { position: absolute; left: 18px; top: 18px; width: 172px; height: 172px;
+    border-radius: 50%; background: #1f6f8b; box-shadow: 0 4px 18px rgba(0,0,0,.45); }
+  #top-right { position: absolute; right: 18px; top: 16px; text-align: right; }
+  #stars { font-size: 26px; letter-spacing: 2px; line-height: 1; text-shadow: 0 2px 6px rgba(0,0,0,.6); }
+  #stars .star { color: rgba(255,255,255,.28); }
+  #stars .star.lit { color: var(--gold); }
+  #money { font-size: 30px; font-weight: 800; margin-top: 4px; color: #7ee787;
+    text-shadow: 0 2px 6px rgba(0,0,0,.7); }
+  #clock { font-size: 15px; font-weight: 600; opacity: .9; text-shadow: 0 1px 4px rgba(0,0,0,.7); }
+  #district { font-size: 13px; letter-spacing: .14em; text-transform: uppercase; opacity: .75;
+    text-shadow: 0 1px 4px rgba(0,0,0,.7); }
+  #medallions { font-size: 14px; margin-top: 4px; opacity: .9; text-shadow: 0 1px 4px rgba(0,0,0,.7); }
+  #objective { position: absolute; left: 50%; top: 18px; transform: translateX(-50%);
+    max-width: 560px; text-align: center; font-size: 17px; font-weight: 700;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 9px 18px; box-shadow: 0 4px 18px rgba(0,0,0,.4); }
+  #vitals { position: absolute; left: 18px; bottom: 18px; width: 230px; }
+  .bar { height: 14px; background: rgba(0,0,0,.55); border: 1px solid var(--line);
+    border-radius: 7px; overflow: hidden; margin-top: 5px; }
+  .bar .fill { height: 100%; background: linear-gradient(90deg, #e5534b, #ff7a5c); transition: width .2s; }
+  .bar .fill.low { background: linear-gradient(90deg, #c93a3a, #ff2a2a); }
+  #armor-fill { background: linear-gradient(90deg, #3a5ac9, #6a9aff) !important; }
+  #health-text { font-size: 13px; font-weight: 700; text-shadow: 0 1px 4px rgba(0,0,0,.8); }
+  #speedo { position: absolute; right: 20px; bottom: 18px; text-align: right; }
+  #speed { font-size: 44px; font-weight: 800; line-height: 1; text-shadow: 0 2px 8px rgba(0,0,0,.7); }
+  #speed-unit { font-size: 13px; opacity: .8; }
+  #vehicle { font-size: 14px; font-weight: 600; opacity: .9; text-shadow: 0 1px 4px rgba(0,0,0,.7); }
+  #hint { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%);
+    font-size: 15px; font-weight: 600; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 8px; padding: 7px 14px; }
+  #toasts { position: absolute; left: 50%; top: 76px; transform: translateX(-50%);
+    display: flex; flex-direction: column; gap: 6px; align-items: center; }
+  .toast { font-size: 15px; font-weight: 700; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 8px; padding: 7px 16px; }
+  .toast.good { color: #7ee787; } .toast.bad { color: #ff7a5c; }
+
+  /* ---------- Menus ---------- */
+  .overlay { position: fixed; inset: 0; z-index: 10; display: none;
+    align-items: center; justify-content: center; flex-direction: column;
+    background: linear-gradient(180deg, rgba(20,10,30,.55), rgba(20,10,30,.78)); text-align: center; padding: 24px; }
+  #menu { display: flex; }
+  .logo { font-size: 76px; font-weight: 900; letter-spacing: .06em; line-height: .95;
+    background: linear-gradient(180deg, #fff3b0, #ffb347 55%, #ff5e62);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    text-shadow: 0 0 60px rgba(255,170,60,.25); }
+  .tagline { font-size: 17px; letter-spacing: .32em; text-transform: uppercase;
+    color: var(--gold); margin: 10px 0 22px; }
+  #story { max-width: 620px; font-size: 16px; line-height: 1.55; opacity: .92; margin: 0 0 22px; }
+  #menu-stats { font-size: 14px; opacity: .7; margin-bottom: 18px; }
+  .btn { pointer-events: auto; cursor: pointer; font: inherit; font-size: 17px; font-weight: 700;
+    color: var(--ink); background: var(--gold); border: none; border-radius: 10px;
+    padding: 13px 34px; margin: 5px; box-shadow: 0 4px 18px rgba(0,0,0,.4); }
+  .btn:hover { filter: brightness(1.08); }
+  .btn.ghost { background: transparent; color: #f2f0e8; border: 2px solid rgba(255,255,255,.5); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 26px 32px; max-width: 640px; }
+  .panel h2 { margin: 0 0 8px; font-size: 30px; }
+  .panel p { margin: 8px 0; line-height: 1.55; font-size: 15px; opacity: .92; }
+  .keys { text-align: left; font-size: 14px; line-height: 1.9; }
+  .keys b { color: var(--gold); }
+  #help { display: none; }
+  .foot { margin-top: 22px; font-size: 12px; opacity: .55; }
 </style>
 </head>
 <body>
-<canvas id="game" aria-label="Block Dodger: move the paddle left and right to dodge falling blocks and catch coins"></canvas>
+<canvas id="game" aria-label="Solmar Bay: an open-world crime game. Drive, steal cars, outrun the police and run jobs for Mara Solis."></canvas>
 <p id="status" role="status" aria-live="polite"></p>
+
+<div id="hud">
+  <canvas id="minimap" width="172" height="172"></canvas>
+  <div id="objective"></div>
+  <div id="toasts"></div>
+  <div id="top-right">
+    <div id="stars"></div>
+    <div id="money">$250</div>
+    <div id="clock">5:24 PM</div>
+    <div id="district">Solmar Bay</div>
+    <div id="medallions">☀ 0/10</div>
+  </div>
+  <div id="vitals">
+    <div id="health-text">100 HP</div>
+    <div class="bar"><div id="health-fill" class="fill" style="width:100%"></div></div>
+    <div class="bar"><div id="armor-fill" class="fill" style="width:0%"></div></div>
+  </div>
+  <div id="speedo">
+    <div><span id="speed">0</span> <span id="speed-unit">km/h</span></div>
+    <div id="vehicle"></div>
+  </div>
+  <div id="hint"></div>
+</div>
+
+<div id="menu" class="overlay">
+  <div class="logo">SOLMAR<br>BAY</div>
+  <div class="tagline">Sun · Speed · Second Chances</div>
+  <p id="story"></p>
+  <div id="menu-stats"></div>
+  <div>
+    <button id="new-btn" class="btn">New Game</button>
+    <button id="continue-btn" class="btn ghost">Continue</button>
+    <button id="help-btn" class="btn ghost">How to Play</button>
+  </div>
+  <div class="foot">An original open-world crime game. All names, characters, places and art are invented for this game.</div>
+</div>
+
+<div id="help" class="overlay">
+  <div class="panel">
+    <h2>How to Play</h2>
+    <div class="keys">
+      <b>W A S D / Arrows</b> — walk or drive &nbsp;·&nbsp; <b>Mouse</b> — aim &nbsp;·&nbsp; <b>Click</b> — shoot<br>
+      <b>E</b> — steal / enter a car, talk, save at the Safehouse<br>
+      <b>Space</b> — sprint on foot, handbrake in a car &nbsp;·&nbsp; <b>H</b> — horn<br>
+      <b>P / Esc</b> — pause &nbsp;·&nbsp; <b>M</b> — sound on/off<br><br>
+      Run jobs for <b>Mara Solis</b> at her Marina office. Steal cars, lose the cops
+      at the <b>AutoSol Garage</b>, take <b>taxi fares</b>, and find all 10
+      <b>Sun Medallions</b> hidden around the city. Stars mean heat — the more
+      stars, the harder the SBPD chases you. The game saves after every job
+      and at the Safehouse.
+    </div>
+    <button id="help-close" class="btn" style="margin-top:16px">Got it</button>
+  </div>
+</div>
+
+<div id="pause" class="overlay">
+  <div class="panel">
+    <h2>Paused</h2>
+    <p id="pause-stats"></p>
+    <button id="resume-btn" class="btn">Resume</button>
+    <button id="save-btn" class="btn ghost">Save Game</button>
+    <button id="quit-btn" class="btn ghost">Save &amp; Quit to Menu</button>
+  </div>
+</div>
+
+<div id="briefing" class="overlay">
+  <div class="panel">
+    <h2 id="briefing-title"></h2>
+    <p id="briefing-giver" style="color:var(--gold);font-weight:700"></p>
+    <p id="briefing-text"></p>
+    <button id="briefing-go" class="btn" style="margin-top:10px">Let’s go</button>
+  </div>
+</div>
+
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>
